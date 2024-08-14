@@ -221,6 +221,7 @@ type BrowserContext interface {
 	// Emitted when new background page is created in the context.
 	OnBackgroundPage(fn func(Page))
 
+	EnableRecorder(options ...BrowserContextRecorderSupplementEnableParams) error
 	// Playwright has ability to mock clock and passage of time.
 	Clock() Clock
 

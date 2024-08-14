@@ -34,6 +34,37 @@ type browserContextImpl struct {
 	clock           Clock
 }
 
+type RecorderMode string
+
+const (
+	Inspecting RecorderMode = "inspecting"
+	Recording  RecorderMode = "recording"
+)
+
+type BrowserContextRecorderSupplementEnableParams struct {
+	Language             string       `json:"language"`
+	Mode                 RecorderMode `json:"mode"`
+	PauseOnNextStatement bool         `json:"pauseOnNextStatement"`
+	LaunchOptions        interface{}  `json:"launchOptions"`
+	ContextOptions       interface{}  `json:"contextOptions"`
+	Device               string       `json:"device"`
+	SaveStorage          string       `json:"saveStorage"`
+	OutputFile           string       `json:"outputFile"`
+	HandleSIGINT         bool         `json:"handleSIGINT"`
+	OmitCallTracking     bool         `json:"omitCallTracking"`
+}
+
+func (b *browserContextImpl) EnableRecorder(options ...BrowserContextRecorderSupplementEnableParams) error {
+	if b.ownedPage != nil {
+		return errors.New("Please use browser.NewContext()")
+	}
+	_, err := b.channel.Send("recorderSupplementEnable", options)
+	if err != nil {
+		return fmt.Errorf("could not send message: %w", err)
+	}
+	return nil
+}
+
 func (b *browserContextImpl) Clock() Clock {
 	return b.clock
 }
