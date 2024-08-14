@@ -86,6 +86,17 @@ func (d *PlaywrightDriver) isUpToDateDriver() (bool, error) {
 	}
 	return false, nil
 }
+func (d *PlaywrightDriver) GetNodeExecutable() string {
+	return getNodeExecutable(d.driverDirectory)
+}
+
+func (d *PlaywrightDriver) GetDriverPath() string {
+	return d.driverDirectory
+}
+
+func (d *PlaywrightDriver) GetNodeArgs(args []string) []string {
+	return append([]string{getDriverCliJs(d.driverDirectory)}, args...)
+}
 
 // Command returns an exec.Cmd for the driver.
 func (d *PlaywrightDriver) Command(arg ...string) *exec.Cmd {
