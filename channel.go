@@ -1,5 +1,9 @@
 package playwright
 
+import (
+	"reflect"
+)
+
 type channel struct {
 	eventEmitter
 	guid       string
@@ -36,11 +40,14 @@ func (c *channel) innerSend(method string, returnAsDict bool, options ...interfa
 	if returnAsDict {
 		return result, nil
 	}
-	if mapV, ok := result.(map[string]interface{}); ok && len(mapV) <= 1 {
+	if reflect.TypeOf(result).Kind() == reflect.Map {
+		mapV := result.(map[string]interface{})
+		if len(mapV) == 0 {
+			return nil, nil
+		}
 		for key := range mapV {
 			return mapV[key], nil
 		}
-		return nil, nil
 	}
 	return result, nil
 }

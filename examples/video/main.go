@@ -44,6 +44,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to get video path: %v", err)
 	}
+	page.DragAndDrop()
 	fmt.Printf("Saved to %s\n", path)
 	if err = browser.Close(); err != nil {
 		log.Fatalf("could not close browser: %v", err)

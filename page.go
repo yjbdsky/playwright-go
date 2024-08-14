@@ -7,7 +7,6 @@ import (
 	"os"
 	"sync"
 
-	"github.com/playwright-community/playwright-go/internal/safe"
 	"golang.org/x/exp/slices"
 )
 
@@ -27,99 +26,55 @@ type pageImpl struct {
 	routes          []*routeHandlerEntry
 	viewportSize    *Size
 	ownedContext    BrowserContext
-	bindings        *safe.SyncMap[string, BindingCallFunction]
+	bindings        map[string]BindingCallFunction
 	closeReason     *string
 	closeWasCalled  bool
 	harRouters      []*harRouter
-	locatorHandlers map[float64]*locatorHandlerEntry
+	locatorHandlers map[float64]func()
 }
 
-type locatorHandlerEntry struct {
-	locator *locatorImpl
-	handler func(Locator)
-	times   *int
-}
-
-func (p *pageImpl) AddLocatorHandler(locator Locator, handler func(Locator), options ...PageAddLocatorHandlerOptions) error {
+func (p *pageImpl) AddLocatorHandler(locator Locator, handler func()) error {
 	if locator == nil || handler == nil {
 		return errors.New("locator or handler must not be nil")
 	}
 	if locator.Err() != nil {
 		return locator.Err()
 	}
-
-	var option PageAddLocatorHandlerOptions
-	if len(options) == 1 {
-		option = options[0]
-		if option.Times != nil && *option.Times == 0 {
-			return nil
-		}
-	}
-
 	loc := locator.(*locatorImpl)
 	if loc.frame != p.mainFrame {
 		return errors.New("locator must belong to the main frame of this page")
 	}
 	uid, err := p.channel.Send("registerLocatorHandler", map[string]any{
-		"selector":    loc.selector,
-		"noWaitAfter": option.NoWaitAfter,
+		"selector": loc.selector,
 	})
 	if err != nil {
 		return err
 	}
-	p.locatorHandlers[uid.(float64)] = &locatorHandlerEntry{locator: loc, handler: handler, times: option.Times}
+	p.locatorHandlers[uid.(float64)] = handler
 	return nil
 }
 
 func (p *pageImpl) onLocatorHandlerTriggered(uid float64) {
-	var remove *bool
 	handler, ok := p.locatorHandlers[uid]
 	if !ok {
 		return
 	}
-	if handler.times != nil {
-		*handler.times--
-		if *handler.times == 0 {
-			remove = Bool(true)
-		}
-	}
 	go func() {
 		defer func() {
-			if remove != nil && *remove {
-				delete(p.locatorHandlers, uid)
-			}
 			_, _ = p.connection.WrapAPICall(func() (interface{}, error) {
 				p.channel.SendNoReply("resolveLocatorHandlerNoReply", map[string]any{
-					"uid":    uid,
-					"remove": remove,
+					"uid": uid,
 				})
 				return nil, nil
 			}, true)
 		}()
 
-		handler.handler(handler.locator)
+		handler()
 	}()
-}
-
-func (p *pageImpl) RemoveLocatorHandler(locator Locator) error {
-	for uid := range p.locatorHandlers {
-		if p.locatorHandlers[uid].locator.equals(locator) {
-			delete(p.locatorHandlers, uid)
-			_, _ = p.channel.Send("unregisterLocatorHandler", map[string]any{
-				"uid": uid,
-			})
-			return nil
-		}
-	}
-	return nil
 }
 
 func (p *pageImpl) Context() BrowserContext {
 	return p.browserContext
-}
-
-func (b *pageImpl) Clock() Clock {
-	return b.browserContext.clock
 }
 
 func (p *pageImpl) Close(options ...PageCloseOptions) error {
@@ -784,10 +739,10 @@ func newPage(parent *channelOwner, objectType string, guid string, initializer m
 	bt := &pageImpl{
 		workers:         make([]Worker, 0),
 		routes:          make([]*routeHandlerEntry, 0),
-		bindings:        safe.NewSyncMap[string, BindingCallFunction](),
+		bindings:        make(map[string]BindingCallFunction),
 		viewportSize:    viewportSize,
 		harRouters:      make([]*harRouter, 0),
-		locatorHandlers: make(map[float64]*locatorHandlerEntry, 0),
+		locatorHandlers: make(map[float64]func(), 0),
 	}
 	bt.createChannelOwner(bt, parent, objectType, guid, initializer)
 	bt.browserContext = fromChannel(parent.channel).(*browserContextImpl)
@@ -800,7 +755,7 @@ func newPage(parent *channelOwner, objectType string, guid string, initializer m
 	bt.keyboard = newKeyboard(bt.channel)
 	bt.touchscreen = newTouchscreen(bt.channel)
 	bt.channel.On("bindingCall", func(params map[string]interface{}) {
-		go bt.onBinding(fromChannel(params["binding"]).(*bindingCallImpl))
+		bt.onBinding(fromChannel(params["binding"]).(*bindingCallImpl))
 	})
 	bt.channel.On("close", bt.onClose)
 	bt.channel.On("crash", func() {
@@ -883,11 +838,11 @@ func (p *pageImpl) closeErrorWithReason() error {
 }
 
 func (p *pageImpl) onBinding(binding *bindingCallImpl) {
-	function, ok := p.bindings.Load(binding.initializer["name"].(string))
-	if !ok || function == nil {
+	function := p.bindings[binding.initializer["name"].(string)]
+	if function == nil {
 		return
 	}
-	binding.Call(function)
+	go binding.Call(function)
 }
 
 func (p *pageImpl) onFrameAttached(frame *frameImpl) {
@@ -1081,21 +1036,18 @@ func (p *pageImpl) ExposeBinding(name string, binding BindingCallFunction, handl
 	if len(handle) == 1 {
 		needsHandle = handle[0]
 	}
-	if _, ok := p.bindings.Load(name); ok {
+	if _, ok := p.bindings[name]; ok {
 		return fmt.Errorf("Function '%s' has been already registered", name)
 	}
-	if _, ok := p.browserContext.bindings.Load(name); ok {
+	if _, ok := p.browserContext.bindings[name]; ok {
 		return fmt.Errorf("Function '%s' has been already registered in the browser context", name)
 	}
+	p.bindings[name] = binding
 	_, err := p.channel.Send("exposeBinding", map[string]interface{}{
 		"name":        name,
 		"needsHandle": needsHandle,
 	})
-	if err != nil {
-		return err
-	}
-	p.bindings.Store(name, binding)
-	return nil
+	return err
 }
 
 func (p *pageImpl) SelectOption(selector string, values SelectOptionValues, options ...PageSelectOptionOptions) ([]string, error) {

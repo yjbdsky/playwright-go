@@ -8,6 +8,7 @@ import (
 )
 
 func main() {
+
 	driver, err := playwright.NewDriver(&playwright.RunOptions{})
 	if err != nil {
 		log.Fatalf("could not start driver: %v", err)

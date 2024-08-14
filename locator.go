@@ -53,10 +53,6 @@ func newLocator(frame *frameImpl, selector string, options ...LocatorLocatorOpti
 	return locator
 }
 
-func (l *locatorImpl) equals(locator Locator) bool {
-	return l.frame == locator.(*locatorImpl).frame && l.err == locator.(*locatorImpl).err && l.selector == locator.(*locatorImpl).selector
-}
-
 func (l *locatorImpl) Err() error {
 	return l.err
 }

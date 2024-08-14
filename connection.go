@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/go-stack/stack"
-	"github.com/playwright-community/playwright-go/internal/safe"
 )
 
 var (
@@ -28,10 +27,10 @@ type result struct {
 type connection struct {
 	transport    transport
 	apiZone      sync.Map
-	objects      *safe.SyncMap[string, *channelOwner]
+	objects      map[string]*channelOwner
 	lastID       atomic.Uint32
 	rootObject   *rootChannelOwner
-	callbacks    *safe.SyncMap[uint32, *protocolCallback]
+	callbacks    sync.Map
 	afterClose   func()
 	onClose      func() error
 	isRemote     bool
@@ -98,21 +97,21 @@ func (c *connection) Dispatch(msg *message) {
 	method := msg.Method
 	if msg.ID != 0 {
 		cb, _ := c.callbacks.LoadAndDelete(uint32(msg.ID))
-		if cb.noReply {
+		if cb.(*protocolCallback).noReply {
 			return
 		}
 		if msg.Error != nil {
-			cb.SetResult(result{
+			cb.(*protocolCallback).SetResult(result{
 				Error: parseError(msg.Error.Error),
 			})
 		} else {
-			cb.SetResult(result{
+			cb.(*protocolCallback).SetResult(result{
 				Data: c.replaceGuidsWithChannels(msg.Result),
 			})
 		}
 		return
 	}
-	object, _ := c.objects.Load(msg.GUID)
+	object := c.objects[msg.GUID]
 	if method == "__create__" {
 		c.createRemoteObject(
 			object, msg.Params["type"].(string), msg.Params["guid"].(string), msg.Params["initializer"],
@@ -123,7 +122,7 @@ func (c *connection) Dispatch(msg *message) {
 		return
 	}
 	if method == "__adopt__" {
-		child, ok := c.objects.Load(msg.Params["guid"].(string))
+		child, ok := c.objects[msg.Params["guid"].(string)]
 		if !ok {
 			return
 		}
@@ -206,7 +205,7 @@ func (c *connection) replaceGuidsWithChannels(payload interface{}) interface{} {
 	if v.Kind() == reflect.Map {
 		mapV := payload.(map[string]interface{})
 		if guid, hasGUID := mapV["guid"]; hasGUID {
-			if channelOwner, ok := c.objects.Load(guid.(string)); ok {
+			if channelOwner, ok := c.objects[guid.(string)]; ok {
 				return channelOwner.channel
 			}
 		}
@@ -239,7 +238,7 @@ func (c *connection) sendMessageToServer(object *channelOwner, method string, pa
 		}
 		stack = append(stack, apiZone.(parsedStackTrace).frames...)
 	}
-	metadata["wallTime"] = time.Now().UnixMilli()
+	metadata["wallTime"] = time.Now().Nanosecond()
 	message := map[string]interface{}{
 		"id":       id,
 		"guid":     object.guid,
@@ -255,7 +254,7 @@ func (c *connection) sendMessageToServer(object *channelOwner, method string, pa
 		return nil, fmt.Errorf("could not send message: %w", err)
 	}
 
-	return cb, nil
+	return cb.(*protocolCallback), nil
 }
 
 func (c *connection) setInTracing(isTracing bool) {
@@ -328,8 +327,7 @@ func serializeCallLocation(caller stack.Call) map[string]interface{} {
 func newConnection(transport transport, localUtils ...*localUtilsImpl) *connection {
 	connection := &connection{
 		abort:       make(chan struct{}, 1),
-		callbacks:   safe.NewSyncMap[uint32, *protocolCallback](),
-		objects:     safe.NewSyncMap[string, *channelOwner](),
+		objects:     make(map[string]*channelOwner),
 		transport:   transport,
 		isRemote:    false,
 		closedError: &safeValue[error]{},

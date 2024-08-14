@@ -4,11 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/h2non/filetype"
 	"github.com/playwright-community/playwright-go"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -99,9 +97,7 @@ func TestVideo(t *testing.T) {
 		path, err := video.Path()
 		require.NoError(t, err)
 		require.Contains(t, path, recordVideoDir)
-		require.EventuallyWithT(t, func(collect *assert.CollectT) {
-			require.FileExists(collect, path)
-		}, 1*time.Second, 10*time.Millisecond)
+		require.FileExists(t, path)
 	})
 
 	t.Run("video should not exist when delete before close page", func(t *testing.T) {
@@ -173,9 +169,7 @@ func TestVideo(t *testing.T) {
 		//nolint:staticcheck
 		page.WaitForTimeout(500)
 		require.NoError(t, context.Close())
-		require.EventuallyWithT(t, func(collect *assert.CollectT) {
-			require.FileExists(collect, path)
-		}, 1*time.Second, 10*time.Millisecond)
+		require.FileExists(t, path)
 	})
 
 	t.Run("remote server should work with saveas", func(t *testing.T) {
