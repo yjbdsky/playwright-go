@@ -94,7 +94,7 @@ func (d *PlaywrightDriver) GetDriverPath() string {
 	return d.driverDirectory
 }
 
-func (d *PlaywrightDriver) GetNodeArgs(args []string) []string {
+func (d *PlaywrightDriver) GetNodeArgs(args ...string) []string {
 	return append([]string{getDriverCliJs(d.driverDirectory)}, args...)
 }
 
